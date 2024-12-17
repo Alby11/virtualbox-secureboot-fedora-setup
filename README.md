@@ -1,98 +1,233 @@
-# virtualbox-secureboot-fedora-setup
-Scripts to configure VirtualBox on Fedora with Secure Boot enabled, including generating and signing kernel modules.
+# **VirtualBox Secure Boot Setup on Fedora**
 
-# VirtualBox Secure Boot Setup on Fedora
+This repository provides a streamlined solution to configure **VirtualBox** on Fedora systems with **Secure Boot enabled**. It automates key generation, module signing, and loading processes, reducing manual intervention while adding robust troubleshooting options.
 
-This repository contains two Bash scripts (`pre-reboot.sh` and `post-reboot.sh`) that help configure VirtualBox in Fedora with Secure Boot enabled. The scripts will guide you through generating and registering a key for signing the VirtualBox kernel modules, preventing errors related to kernel module loading under Secure Boot.
+This project is a **fork** of the original repository by [itteamlxs](https://github.com/itteamlxs) from [virtualbox-secureboot-fedora-setup](https://github.com/itteamlxs/virtualbox-secureboot-fedora-setup). I encountered additional challenges, particularly with **KVM conflicts** on **Fedora 41**, and reworked the guide and scripts to help others experiencing similar issues.
 
-## Table of Contents
+---
+
+## **Table of Contents**
+
 - [Overview](#overview)
-- [Prerequisites](#prerequisites)
 - [How It Works](#how-it-works)
+- [Why KVM Conflicts May Occur](#why-kvm-conflicts-may-occur)
+- [Prerequisites](#prerequisites)
 - [Usage](#usage)
-  - [Pre-reboot Setup](#pre-reboot-setup)
-  - [Post-reboot Setup](#post-reboot-setup)
-- [Error Handling](#error-handling)
+  - [Step 1: Pre-reboot Setup](#step-1-pre-reboot-setup)
+  - [Step 2: Post-reboot Setup](#step-2-post-reboot-setup)
+- [Troubleshooting](#troubleshooting)
+- [Future Kernel Updates](#future-kernel-updates)
+- [Credits](#credits)
 - [License](#license)
 
-## Overview
+---
 
-When running VirtualBox on Fedora with Secure Boot enabled, you may encounter an error due to unsigned kernel modules. These scripts will help you:
-1. Generate a signing key and register it with Secure Boot.
-2. Sign the VirtualBox kernel modules.
-3. Load the signed modules automatically, ensuring VirtualBox runs smoothly.
+## **Overview**
 
-## Prerequisites
+When using VirtualBox on Fedora with **Secure Boot enabled**, you may encounter errors such as:
 
-- Fedora with Secure Boot enabled.
-- VirtualBox installed.
-- OpenSSL installed (for generating the signing key).
-- Root access for registering the key with `mokutil` and loading kernel modules.
+```
+modprobe: ERROR: could not insert 'vboxdrv': Operation not permitted
+```
 
-## How It Works
+This happens because **Secure Boot** requires all kernel modules to be signed with a trusted key. This repository automates the following tasks:
 
-1. **`pre-reboot.sh`**: 
-   - Generates a private key and a public certificate.
-   - Registers the public key with the system using `mokutil`.
-   - Prevents re-execution of the script if it has already been run once (using a state file).
+1. Generating a custom key pair.
+2. Registering the public key with Secure Boot using **MOK Manager**.
+3. Signing VirtualBox kernel modules (`vboxdrv`, `vboxnetflt`, `vboxnetadp`).
+4. Loading the signed modules into the kernel.
 
-2. **`post-reboot.sh`**: 
-   - Signs the VirtualBox kernel modules with the private key.
-   - Loads the signed modules into the kernel.
+---
 
-## Usage
+## **How It Works**
 
-### Pre-reboot Setup
+The repository provides two scripts to simplify the process:
 
-1. Clone the repository:
+### **1. `pre-reboot.sh`**
+
+- Generates a private key (`MOK.priv`) and public key (`MOK.der`) for signing modules.
+- Registers the public key using `mokutil`.
+- Prompts the user to reboot for key enrollment using **MOK Manager**.
+- Creates a state file (`/var/log/pre_reboot_vbox_done`) to prevent re-execution.
+
+### **2. `post-reboot.sh`**
+
+- Signs VirtualBox kernel modules (`vboxdrv`, `vboxnetflt`, `vboxnetadp`).
+- Loads the signed modules into the kernel.
+- Ensures successful module loading.
+
+---
+
+## **Why KVM Conflicts May Occur**
+
+**KVM (Kernel-based Virtual Machine)** conflicts with VirtualBox because both hypervisors attempt to use the hardware virtualization extensions (Intel VT-x or AMD-V). When KVM modules are loaded, VirtualBox may fail with errors like:
+
+```
+VT-x is not available (VERR_VMX_NO_VMX)
+```
+
+> While this conflict **may not occur for everyone**, it happened in my case on **Fedora 41**. This issue inspired me to fork the original repository and include these steps to help others troubleshoot similar problems.
+
+If you encounter this issue, follow the [Troubleshooting](#troubleshooting) section to **disable and blacklist KVM modules**.
+
+---
+
+## **Prerequisites**
+
+Ensure the following tools and packages are installed:
+
+```bash
+sudo dnf install kernel-devel kernel-headers gcc mokutil openssl
+```
+
+---
+
+## **Usage**
+
+### **Step 1: Pre-reboot Setup**
+
+1. Clone the repository and navigate to it:
 
    ```bash
-   git clone https://github.com/yourusername/virtualbox-secureboot-setup.git
-   cd virtualbox-secureboot-setup
-Make the pre-reboot.sh script executable:
+   git clone https://github.com/yourusername/virtualbox-secureboot-fedora-setup.git
+   cd virtualbox-secureboot-fedora-setup
+   ```
 
-bash
+2. Make the `pre-reboot.sh` script executable and run it:
 
-chmod +x pre-reboot.sh
+   ```bash
+   chmod +x pre-reboot.sh
+   sudo ./pre-reboot.sh
+   ```
 
-Run the script:
+   - Generates the signing keys (`MOK.priv` and `MOK.der`).
+   - Registers the public key with Secure Boot using `mokutil`.
+   - Prompts you to set a password for key enrollment.
 
-bash
+3. **Reboot your system**:\
+   During boot, the **MOK Manager** will appear:
+   - Select **Enroll MOK**.
+   - Select **Continue**.
+   - Enter the password set earlier.
 
-    sudo ./pre-reboot.sh
+---
 
-    When prompted, provide a password to enroll the key with Secure Boot.
+### **Step 2: Post-reboot Setup**
 
-    Reboot your system and follow the instructions to enroll the key (use the password you set earlier).
+1. After rebooting, make the `post-reboot.sh` script executable and run it:
 
-Post-reboot Setup
+   ```bash
+   chmod +x post-reboot.sh
+   sudo ./post-reboot.sh
+   ```
 
-    After the reboot, make the post-reboot.sh script executable:
+   - Signs VirtualBox kernel modules.
+   - Loads the signed modules into the kernel.
 
-    bash
+2. Verify that the modules are loaded successfully:
 
-chmod +x post-reboot.sh
+   ```bash
+   lsmod | grep vbox
+   ```
 
-Run the script to sign and load the VirtualBox kernel modules:
+   Expected output:
 
-bash
+   ```plaintext
+   vboxnetadp            32768  0
+   vboxnetflt            40960  0
+   vboxdrv              700416  2 vboxnetflt,vboxnetadp
+   ```
 
-    sudo ./post-reboot.sh
+3. Start VirtualBox:
+   ```bash
+   virtualbox
+   ```
 
-    The script will sign and load the necessary modules (vboxdrv, vboxnetflt, vboxnetadp). VirtualBox should now function properly.
+---
 
-Error Handling
+## **Troubleshooting**
 
-    Script already executed: If pre-reboot.sh has already been executed, it will create a state file (/var/log/pre_reboot_vbox_done). To re-run the script, delete the file with:
+### **1. KVM Conflict: Disable and Blacklist KVM Modules**
 
-    bash
+If VirtualBox fails due to KVM conflicts:
 
-sudo rm /var/log/pre_reboot_vbox_done
+1. Unload KVM modules:
 
-Missing keys in post-reboot.sh: If you haven't run pre-reboot.sh yet, the post-reboot.sh script will alert you to generate the keys first.
+   ```bash
+   sudo modprobe -r kvm_intel kvm_amd kvm
+   ```
 
-Secure Boot not enrolled: Ensure that Secure Boot is properly configured and the key has been enrolled after the reboot.
+2. Blacklist KVM modules to prevent automatic loading:\
+   Add the following lines to `/etc/modprobe.d/blacklist.conf`:
 
-## License
+   ```plaintext
+   blacklist kvm
+   blacklist kvm_intel
+   blacklist kvm_amd
+   ```
+
+3. Rebuild the initramfs and reboot:
+
+   ```bash
+   sudo dracut --force
+   sudo reboot
+   ```
+
+4. Verify KVM is disabled:
+   ```bash
+   lsmod | grep kvm
+   ```
+
+### **2. Check Secure Boot Status**
+
+Ensure Secure Boot is enabled:
+
+```bash
+mokutil --sb-state
+```
+
+### **3. Check Module Logs**
+
+Check the logs for Secure Boot or module errors:
+
+```bash
+dmesg | grep -i "secure boot"
+dmesg | grep vbox
+```
+
+### **4. Rebuild VirtualBox Modules**
+
+If modules fail to load, rebuild them manually:
+
+```bash
+sudo /usr/lib/virtualbox/vboxdrv.sh setup
+```
+
+---
+
+## **Future Kernel Updates**
+
+After kernel updates, re-run the `post-reboot.sh` script to re-sign and reload the VirtualBox modules:
+
+```bash
+sudo ./post-reboot.sh
+```
+
+---
+
+## **Credits**
+
+- Original repository by [itteamlxs](https://github.com/itteamlxs) from [virtualbox-secureboot-fedora-setup](https://github.com/itteamlxs/virtualbox-secureboot-fedora-setup).
+- Forked and enhanced for **Fedora 41** by [Alby11](https://github.com/Alby11), based on personal experience with **KVM conflicts** and module signing issues.
+
+---
+
+## **License**
 
 This project is licensed under the MIT License.
+
+---
+
+**End of README**
+
+Let me know if you need any more tweaks or assistance! 😊
